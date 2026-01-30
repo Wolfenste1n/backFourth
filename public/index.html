@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytical Platform</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        select, input, button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .charts-container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        .chart-box {
+            background-color: white;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Analytical Platform</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="fieldSelect">Select Field:</label>
+                <select id="fieldSelect">
+                    <option value="field1">Temperature (°C)</option>
+                    <option value="field2">Humidity (%)</option>
+                    <option value="field3">CO2 Levels (ppm)</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="startDate">Start Date:</label>
+                <input type="date" id="startDate" value="2025-01-01">
+            </div>
+            
+            <div class="control-group">
+                <label for="endDate">End Date:</label>
+                <input type="date" id="endDate" value="2025-01-31">
+            </div>
+            
+            <div class="control-group">
+                <label for="sensorId">Sensor ID:</label>
+                <input type="text" id="sensorId" placeholder="default">
+            </div>
+            
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadData()">Load Data</button>
+            </div>
+        </div>
+        
+        <div id="errorContainer"></div>
+        
+        <div class="charts-container">
+            <div class="chart-box">
+                <h3>Time Series Data</h3>
+                <canvas id="timeSeriesChart"></canvas>
+            </div>
+            
+            <div class="chart-box">
+                <h3>Statistical Metrics</h3>
+                <div id="metricsContainer" class="metrics">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let timeSeriesChart = null;
+        const API_BASE_URL = 'http://localhost:8080/api/measurements';
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error">${message}</div>`;
+            setTimeout(() => {
+                errorContainer.innerHTML = '';
+            }, 5000);
+        }
+        
+        async function loadData() {
+            try {
+                const field = document.getElementById('fieldSelect').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const sensorId = document.getElementById('sensorId').value || 'default';
+                
+                const params = new URLSearchParams({
+                    field,
+                    start_date: startDate,
+                    end_date: endDate,
+                    sensor_id: sensorId
+                });
+                
+                const response = await axios.get(`${API_BASE_URL}?${params}`);
+                const timeSeriesData = response.data;
+                
+                const metricsResponse = await axios.get(`${API_BASE_URL}/metrics?${params}`);
+                const metrics = metricsResponse.data;
+                
+                updateChart(timeSeriesData, field);
+                
+                updateMetrics(metrics);
+                
+            } catch (error) {
+                showError(error.response?.data?.error || 'Failed to load data');
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        function updateChart(data, field) {
+            const ctx = document.getElementById('timeSeriesChart').getContext('2d');
+            
+            if (timeSeriesChart) {
+                timeSeriesChart.destroy();
+            }
+            
+            const labels = data.map(item => {
+                const date = new Date(item.timestamp);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            });
+            
+            const values = data.map(item => item[field]);
+            
+            timeSeriesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: getFieldLabel(field),
+                        data: values,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        tension: 0.1,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time Series Visualization'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Timestamp'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: getFieldLabel(field)
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateMetrics(metrics) {
+            const metricsContainer = document.getElementById('metricsContainer');
+            
+            const metricCards = [
+                { label: 'Average', value: metrics.avg, unit: getFieldUnit(metrics.field) },
+                { label: 'Minimum', value: metrics.min, unit: getFieldUnit(metrics.field) },
+                { label: 'Maximum', value: metrics.max, unit: getFieldUnit(metrics.field) },
+                { label: 'Standard Deviation', value: metrics.stdDev, unit: getFieldUnit(metrics.field) },
+                { label: 'Data Points', value: metrics.count, unit: 'points' },
+                { label: 'Field', value: getFieldLabel(metrics.field), unit: '' }
+            ];
+            
+            metricsContainer.innerHTML = metricCards.map(card => `
+                <div class="metric-card">
+                    <div class="metric-value">${card.value}</div>
+                    <div class="metric-label">${card.label}</div>
+                    ${card.unit ? `<small>${card.unit}</small>` : ''}
+                </div>
+            `).join('');
+        }
+        
+        function getFieldLabel(field) {
+            const labels = {
+                'field1': 'Temperature',
+                'field2': 'Humidity',
+                'field3': 'CO2 Levels'
+            };
+            return labels[field] || field;
+        }
+        
+        function getFieldUnit(field) {
+            const units = {
+                'field1': '°C',
+                'field2': '%',
+                'field3': 'ppm'
+            };
+            return units[field] || '';
+        }
+        
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
